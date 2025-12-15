@@ -3,23 +3,20 @@ import os
 from google import genai
 
 # --- CONFIGURATION ---
-# 1. SPECIALIZED SEARCH QUERY
-# We search specifically for NBFC/Banking + keywords like "invest", "raise", "deal", "acquire"
-# "hl=en-IN&gl=IN" focuses on India news where the term "NBFC" is most relevant. 
-# If you want global news, change to "hl=en-US&gl=US".
 RSS_FEED_URL = "https://news.google.com/rss/search?q=(NBFC+OR+Banking)+AND+(investment+OR+deal+OR+funding+OR+acquisition+OR+merger+OR+stake)&hl=en-IN&gl=IN&ceid=IN:en"
 
-API_KEY = os.environ.get("GEMINI_API_KEY")
+# The SDK will automatically look for 'GOOGLE_API_KEY' or 'GEMINI_API_KEY'
+# But we capture it here just to check if it exists before running.
+API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 def analyze_market_news():
     print("Fetching NBFC & Banking Deal news...")
     
-    # 2. Parse the RSS Feed
+    # 1. Parse the RSS Feed
     feed = feedparser.parse(RSS_FEED_URL)
     headlines = []
     
     # Collect top 10 relevant headlines
-    # We add the link so you can click it later if needed (optional)
     for entry in feed.entries[:10]:
         headlines.append(f"- {entry.title}")
 
@@ -29,16 +26,15 @@ def analyze_market_news():
 
     print(f"Found {len(headlines)} headlines. Sending to AI for analysis...")
 
-    # 3. Initialize Gemini
+    # 2. Check Key
     if not API_KEY:
-        print("Error: GOOGLE_API_KEY is missing.")
+        print("Error: API Key (GEMINI_API_KEY or GOOGLE_API_KEY) is missing.")
         return
 
     try:
+        # 3. Initialize Client (New SDK Style)
         client = genai.Client(api_key=API_KEY)
 
-        # 4. The Analysis Prompt
-        # We ask the AI to filter strictly for financial deals/investments
         prompt = (
             "You are a financial analyst. Review these news headlines about NBFCs and Banking.\n"
             "Identify and summarize ONLY:\n"
@@ -53,8 +49,10 @@ def analyze_market_news():
             "If nothing relevant is found in a category, write 'None'."
         )
 
+        # 4. Generate Content using the NEW Model
+        # UPDATED: Changed from 'gemini-1.5-flash' to 'gemini-2.0-flash'
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash", 
             contents=prompt
         )
 

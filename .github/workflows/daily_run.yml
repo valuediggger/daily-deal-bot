@@ -30,3 +30,7 @@ jobs:
         EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
       run: python main.py
+- name: Run analysis script
+      env: 
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}  # <--- ADD THIS LINE
+      run: python main.py

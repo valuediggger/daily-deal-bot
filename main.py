@@ -1,19 +1,19 @@
 import feedparser
 import os
 import time
-import google.generativeai as genai
+import requests
+import json
 
 # --- CONFIGURATION ---
 RSS_FEED_URL = "https://news.google.com/rss/search?q=(NBFC+OR+Banking)+AND+(investment+OR+deal+OR+funding+OR+acquisition+OR+merger+OR+stake)&hl=en-IN&gl=IN&ceid=IN:en"
 
-# We try the standard stable models first.
-# "gemini-1.5-flash" is the most reliable free tier model.
-MODELS_TO_TRY = [
+# We try these raw API endpoints directly. 
+# This bypasses the Python SDK "Not Found" errors.
+MODELS = [
     "gemini-1.5-flash",
-    "gemini-1.5-flash-001",
-    "gemini-1.5-flash-002",
-    "gemini-1.5-pro",
-    "gemini-1.0-pro"
+    "gemini-1.5-flash-8b",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-pro"
 ]
 
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -23,7 +23,6 @@ def analyze_market_news():
     
     feed = feedparser.parse(RSS_FEED_URL)
     headlines = []
-    
     for entry in feed.entries[:10]:
         headlines.append(f"- {entry.title}")
 
@@ -37,9 +36,7 @@ def analyze_market_news():
         print("Error: API Key is missing.")
         return
 
-    # --- CONFIGURE THE OLD STABLE SDK ---
-    genai.configure(api_key=API_KEY)
-
+    # Prepare the prompt
     prompt_text = (
         "You are a financial analyst. Review these news headlines about NBFCs and Banking.\n"
         "Identify and summarize ONLY:\n"
@@ -54,37 +51,56 @@ def analyze_market_news():
         "If nothing relevant is found in a category, write 'None'."
     )
 
+    # --- THE DIRECT API LOOP ---
     success = False
-    
-    for model_name in MODELS_TO_TRY:
-        print(f"Attempting with model: {model_name}...")
-        try:
-            # Initialize model (Old SDK Style)
-            model = genai.GenerativeModel(model_name)
-            
-            # Generate content
-            response = model.generate_content(prompt_text)
-            
-            # Check if response was blocked
-            if not response.parts:
-                print(f"Warning: Model {model_name} returned empty response (Safety Filter?).")
-                continue
 
-            print("\n" + "="*30)
-            print(f"SUCCESS with {model_name}")
-            print("="*30)
-            print(response.text)
-            print("="*30)
-            success = True
-            break 
+    for model in MODELS:
+        print(f"Attempting direct connection to: {model}...")
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}"
+        
+        headers = {'Content-Type': 'application/json'}
+        data = {
+            "contents": [{
+                "parts": [{"text": prompt_text}]
+            }]
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=30)
+            
+            # Check for HTTP Errors (404, 429, 500)
+            if response.status_code == 200:
+                result = response.json()
+                # Extract text safely
+                try:
+                    text_output = result['candidates'][0]['content']['parts'][0]['text']
+                    print("\n" + "="*30)
+                    print(f"SUCCESS with {model}")
+                    print("="*30)
+                    print(text_output)
+                    print("="*30)
+                    success = True
+                    break # Stop looping, we won!
+                except (KeyError, IndexError):
+                    print(f"Model {model} returned 200 OK but unreadable format: {result}")
+                    continue
+
+            elif response.status_code == 429:
+                print(f"Model {model} is busy (Quota Exceeded). Trying next...")
+                time.sleep(1) # Brief pause
+            
+            elif response.status_code == 404:
+                print(f"Model {model} not found for this key. Trying next...")
+            
+            else:
+                print(f"Model {model} failed with Status {response.status_code}: {response.text}")
 
         except Exception as e:
-            print(f"Failed with {model_name}. Error: {e}")
-            print("Switching to next model...\n")
-            time.sleep(2) 
+            print(f"Connection error with {model}: {e}")
 
     if not success:
-        print("CRITICAL: All models failed. Please check your API Key permissions.")
+        print("CRITICAL: All attempts failed. Your API key might be invalid or quota is completely zero.")
 
 if __name__ == "__main__":
     analyze_market_news()

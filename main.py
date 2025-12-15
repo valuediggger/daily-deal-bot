@@ -9,7 +9,7 @@ from google import genai
 # If you want global news, change to "hl=en-US&gl=US".
 RSS_FEED_URL = "https://news.google.com/rss/search?q=(NBFC+OR+Banking)+AND+(investment+OR+deal+OR+funding+OR+acquisition+OR+merger+OR+stake)&hl=en-IN&gl=IN&ceid=IN:en"
 
-API_KEY = os.environ.get("GOOGLE_API_KEY")
+API_KEY = os.environ.get("GEMINI_API_KEY")
 
 def analyze_market_news():
     print("Fetching NBFC & Banking Deal news...")

@@ -1,122 +1,71 @@
 import feedparser
-import google.generativeai as genai
-import smtplib
 import os
-import json
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from google import genai
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-EMAIL_SENDER = os.environ["EMAIL_USER"]
-EMAIL_PASSWORD = os.environ["EMAIL_PASS"]
-EMAIL_RECEIVER = os.environ["EMAIL_RECEIVER"]
+# 1. SPECIALIZED SEARCH QUERY
+# We search specifically for NBFC/Banking + keywords like "invest", "raise", "deal", "acquire"
+# "hl=en-IN&gl=IN" focuses on India news where the term "NBFC" is most relevant. 
+# If you want global news, change to "hl=en-US&gl=US".
+RSS_FEED_URL = "https://news.google.com/rss/search?q=(NBFC+OR+Banking)+AND+(investment+OR+deal+OR+funding+OR+acquisition+OR+merger+OR+stake)&hl=en-IN&gl=IN&ceid=IN:en"
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-def get_news_from_rss():
-    # UPDATED: Added NBFC, Banking, Mergers, and Acquisitions to the search query
-    rss_url = "https://news.google.com/rss/search?q=India+(startup+funding+OR+PE+investment+OR+venture+capital+OR+NBFC+news+OR+banking+sector+OR+bank+merger+OR+RBI+regulation)+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
-    feed = feedparser.parse(rss_url)
+def analyze_market_news():
+    print("Fetching NBFC & Banking Deal news...")
     
-    articles = []
-    seen = set()
-    # Increased fetch limit to 30 to catch the wider variety of news
-    for entry in feed.entries[:30]:
-        if entry.title not in seen:
-            articles.append(f"- {entry.title} (Link: {entry.link})")
-            seen.add(entry.title)
-    return articles
-
-def analyze_with_gemini(news_list):
-    if not news_list:
-        return []
+    # 2. Parse the RSS Feed
+    feed = feedparser.parse(RSS_FEED_URL)
+    headlines = []
     
-    news_text = "\n".join(news_list)
-    
-    # UPDATED PROMPT: Now asks for Banking/NBFC news and handles non-funding events
-    prompt = f"""
-    You are a financial analyst covering the Indian market. Analyze the following news headlines.
-    Filter and extract news related to:
-    1. Private Equity (PE) & Venture Capital (VC) deals.
-    2. Key developments in the NBFC & Banking sectors (Mergers, Acquisitions, Major Regulatory Changes, Big Loan Sanctions, Fraud/Crisis).
+    # Collect top 10 relevant headlines
+    # We add the link so you can click it later if needed (optional)
+    for entry in feed.entries[:10]:
+        headlines.append(f"- {entry.title}")
 
-    Ignore generic stock market reports (e.g., "Sensex jumps 100 points") or quarterly result previews unless major.
-
-    Return a valid JSON list of objects with these keys:
-    - "company": Name of the main entity/company involved.
-    - "investor": Name of the investor OR the counter-party (e.g., in a merger). If it's a regulatory update, put "Regulatory".
-    - "amount": The deal size (e.g., "$100M", "Rs 500 Cr"). If not applicable, write "N/A".
-    - "type": Describe the event (e.g., "Seed Round", "Series A", "Merger", "Regulatory Update", "Acquisition").
-    - "link": The original link.
-
-    Headlines:
-    {news_text}
-    """
-    
-    try:
-        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
-        return json.loads(response.text)
-    except Exception as e:
-        print(f"Error parsing AI response: {e}")
-        return []
-
-def send_email(data):
-    if not data:
-        print("No relevant deals found today.")
+    if not headlines:
+        print("No specific deal news found today.")
         return
 
-    # Create HTML Table
-    table_rows = ""
-    for item in data:
-        table_rows += f"""
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>{item.get('company')}</b></td>
-            <td style="padding:8px; border:1px solid #ddd;">{item.get('investor')}</td>
-            <td style="padding:8px; border:1px solid #ddd;">{item.get('amount')}</td>
-            <td style="padding:8px; border:1px solid #ddd;">{item.get('type', '-')}</td>
-            <td style="padding:8px; border:1px solid #ddd;"><a href="{item.get('link')}">Read</a></td>
-        </tr>
-        """
-    
-    html_content = f"""
-    <html>
-    <body>
-        <h2>🇮🇳 India Finance Daily: {datetime.now().strftime('%d %b %Y')}</h2>
-        <p>Latest updates on PE/VC Deals, NBFCs, and Banking.</p>
-        <table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
-            <tr style="background-color: #f2f2f2;">
-                <th style="padding:8px; border:1px solid #ddd; text-align:left;">Entity / Company</th>
-                <th style="padding:8px; border:1px solid #ddd; text-align:left;">Investor / Counterparty</th>
-                <th style="padding:8px; border:1px solid #ddd; text-align:left;">Value</th>
-                <th style="padding:8px; border:1px solid #ddd; text-align:left;">Event Type</th>
-                <th style="padding:8px; border:1px solid #ddd; text-align:left;">Link</th>
-            </tr>
-            {table_rows}
-        </table>
-        <p style="font-size:12px; color:gray;">Generated by AI Analyst via GitHub Actions.</p>
-    </body>
-    </html>
-    """
+    print(f"Found {len(headlines)} headlines. Sending to AI for analysis...")
 
-    msg = MIMEMultipart()
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECEIVER
-    msg['Subject'] = f"Daily Finance Digest: {len(data)} Key Updates Found"
-    msg.attach(MIMEText(html_content, 'html'))
+    # 3. Initialize Gemini
+    if not API_KEY:
+        print("Error: GOOGLE_API_KEY is missing.")
+        return
 
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        print("Email sent successfully!")
+    try:
+        client = genai.Client(api_key=API_KEY)
+
+        # 4. The Analysis Prompt
+        # We ask the AI to filter strictly for financial deals/investments
+        prompt = (
+            "You are a financial analyst. Review these news headlines about NBFCs and Banking.\n"
+            "Identify and summarize ONLY:\n"
+            "1. New Investments (Who invested in whom?)\n"
+            "2. Mergers & Acquisitions (Deals)\n"
+            "3. Major Regulatory Updates affecting the sector\n\n"
+            "Headlines:\n"
+            + "\n".join(headlines) + "\n\n"
+            "Output Format:\n"
+            "- **Deals & Investments:** [List details]\n"
+            "- **Top Sector News:** [Major non-deal updates]\n"
+            "If nothing relevant is found in a category, write 'None'."
+        )
+
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
+
+        print("\n" + "="*30)
+        print("NBFC & BANKING INTELLIGENCE")
+        print("="*30)
+        print(response.text)
+        print("="*30)
+
+    except Exception as e:
+        print(f"Error during analysis: {e}")
 
 if __name__ == "__main__":
-    print("Fetching news...")
-    news = get_news_from_rss()
-    print(f"Found {len(news)} headlines. Analyzing...")
-    deals = analyze_with_gemini(news)
-    print(f"Extracted {len(deals)} relevant updates.")
-    send_email(deals)
+    analyze_market_news()

@@ -15,7 +15,7 @@ EMAIL_RECEIVER = os.environ["EMAIL_RECEIVER"]
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-pro')
 
 def get_news_from_rss():
     # UPDATED: Added NBFC, Banking, Mergers, and Acquisitions to the search query
